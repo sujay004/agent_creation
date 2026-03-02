@@ -16,7 +16,9 @@ THE KEY INSIGHT:
   send the result back, and let the LLM continue thinking.
 """
 
+import os
 import json
+import time
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -26,9 +28,15 @@ from memory import ConversationMemory
 # Load environment variables (.env file)
 load_dotenv()
 
-# Initialize the OpenAI client
-# It automatically reads OPENAI_API_KEY from environment
-client = OpenAI()
+# ─────────────────────────────────────────────
+# Initialize the client — Using Google Gemini!
+# ─────────────────────────────────────────────
+# Google provides an OpenAI-compatible endpoint so we can
+# use the same `openai` SDK — just pointed at Google's servers.
+client = OpenAI(
+    api_key=os.getenv("GEMINI_API_KEY"),
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+)
 
 # ─────────────────────────────────────────────
 # SYSTEM PROMPT — The Agent's Identity
@@ -79,13 +87,32 @@ def run_agent(user_input: str, memory: ConversationMemory) -> str:
     for iteration in range(MAX_ITERATIONS):
         print(f"\n🔄 Agent thinking... (iteration {iteration + 1})")
 
-        # ── Step 1: Call the LLM ──────────────────────────
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",       # Fast & cheap for development
-            messages=memory.get_messages(),
-            tools=TOOL_SCHEMAS,        # Tell the LLM what tools are available
-            tool_choice="auto",        # Let the LLM decide when to use tools
-        )
+        # ── Step 1: Call the LLM (with retry for rate limits) ──
+        max_retries = 3
+        response = None
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(
+                    model="gemini-2.5-flash",       # Latest Gemini model, available for new users
+                    messages=memory.get_messages(),
+                    tools=TOOL_SCHEMAS,        # Tell the LLM what tools are available
+                    tool_choice="auto",        # Let the LLM decide when to use tools
+                )
+                break  # Success! Exit retry loop
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait_time = 30 * (attempt + 1)  # 30s, 60s, 90s
+                    print(f"⏳ Rate limited (free tier). Waiting {wait_time}s before retry...")
+                    for remaining in range(wait_time, 0, -1):
+                        print(f"   ⏱️  {remaining}s remaining...", end="\r")
+                        time.sleep(1)
+                    print("   ⏱️  Retrying now!          ")
+                else:
+                    raise  # Re-raise non-rate-limit errors
+
+        # If all retries failed, bail out
+        if response is None:
+            return "⏳ Rate limit exceeded after all retries. Please wait a few minutes and try again."
 
         # Get the assistant's message
         assistant_message = response.choices[0].message
@@ -170,8 +197,16 @@ def main():
             response = run_agent(user_input, memory)
             print(f"\n🤖 Agent: {response}")
         except Exception as e:
+            error_msg = str(e)
             print(f"\n❌ Error: {e}")
-            print("Make sure your OPENAI_API_KEY is set correctly in .env")
+            if "401" in error_msg or "API key" in error_msg:
+                print("🔑 Your API key seems invalid. Check your .env file.")
+                print("   Get a free key at: https://aistudio.google.com/apikey")
+            elif "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                print("⏳ Rate limit hit. Wait a minute and try again.")
+                print("   Free tier limits: https://ai.google.dev/gemini-api/docs/rate-limits")
+            else:
+                print("Make sure your GEMINI_API_KEY is set correctly in .env")
 
 
 if __name__ == "__main__":
