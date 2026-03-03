@@ -21,6 +21,8 @@ This is the simplest way to connect an MCP server.
 import json
 import sys
 import asyncio
+import requests
+import urllib.parse
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp import types
@@ -97,6 +99,25 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {},
             },
         ),
+        types.Tool(
+            name="get_random_joke",
+            description="Fetch a random programming or general joke from a free external API. Use this to lighten the mood!",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        types.Tool(
+            name="get_wikipedia_summary",
+            description="Get a short summary of a topic from Wikipedia.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "The topic to search for on Wikipedia (e.g. 'Python (programming language)')."}
+                },
+                "required": ["topic"],
+            },
+        ),
     ]
 
 
@@ -162,6 +183,32 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             f"  Overdue:       {summary['overdue']}\n"
             f"  High Priority: {summary['high_priority_pending']}"
         )
+
+    elif name == "get_random_joke":
+        try:
+            url = "https://official-joke-api.appspot.com/random_joke"
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            result = f"🤣 Joke:\n{data['setup']}\n... {data['punchline']}"
+        except Exception as e:
+            result = f"❌ Error fetching joke: {str(e)}"
+
+    elif name == "get_wikipedia_summary":
+        topic = arguments["topic"]
+        try:
+            url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exsentences=3&exlimit=1&titles={urllib.parse.quote(topic)}&explaintext=1&format=json"
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            pages = data.get("query", {}).get("pages", {})
+            page = list(pages.values())[0]
+            if "extract" in page:
+                result = f"� Wikipedia Summary for {topic}:\n{page['extract']}"
+            else:
+                result = f"❌ No Wikipedia page found for '{topic}'."
+        except Exception as e:
+            result = f"❌ Error fetching Wikipedia summary for {topic}: {str(e)}"
 
     else:
         result = f"❌ Unknown tool: {name}"
