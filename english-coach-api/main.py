@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 import llm
@@ -97,7 +98,7 @@ async def transcribe(audio: UploadFile = File(...)):
 async def analyze(request: AnalyzeRequest):
     """
     Receive text → analyze with Gemini → return structured feedback.
-    Saves the session to history.
+    Saves the session to history. Also generates a voice coaching script.
     """
     try:
         if not request.text.strip():
@@ -106,6 +107,9 @@ async def analyze(request: AnalyzeRequest):
         # Get analysis from Gemini
         analysis = llm.analyze_english(request.text, request.mode)
 
+        # Generate a conversational voice coaching script for browser TTS
+        voice_script = llm.generate_voice_script(analysis)
+
         # Save to history
         session_id = database.save_session(
             mode=request.mode,
@@ -113,7 +117,7 @@ async def analyze(request: AnalyzeRequest):
             analysis=analysis,
         )
 
-        return {**analysis, "session_id": session_id}
+        return {**analysis, "session_id": session_id, "voice_script": voice_script}
     except HTTPException:
         raise
     except Exception as e:
@@ -198,3 +202,25 @@ def get_topic():
 def get_sentence():
     """Return a random practice sentence."""
     return {"sentence": llm.get_random_sentence()}
+
+
+class VoiceFeedbackRequest(BaseModel):
+    analysis: dict
+
+
+@app.post("/api/voice-feedback")
+async def voice_feedback(request: VoiceFeedbackRequest):
+    """
+    Takes analysis JSON → generates coaching script → returns WAV audio via Gemini TTS.
+    The frontend plays this audio so the user hears corrections spoken aloud.
+    """
+    try:
+        # Generate audio from Gemini TTS
+        wav_bytes = llm.generate_tts_audio_from_analysis(request.analysis)
+        return Response(
+            content=wav_bytes,
+            media_type="audio/wav",
+            headers={"Content-Disposition": "inline; filename=coaching.wav"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice generation failed: {str(e)}")

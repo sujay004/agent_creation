@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './index.css'
 
 const API = 'http://localhost:8000'
@@ -29,6 +29,7 @@ interface Analysis {
   summary_tamil: string
   tips: string[]
   session_id?: number
+  voice_script?: string
 }
 
 interface HistorySession {
@@ -52,6 +53,150 @@ function scoreClass(score: number) {
   if (score >= 7) return 'high'
   if (score >= 4) return 'mid'
   return 'low'
+}
+
+// ─── Voice Coach Component ──────────────────
+
+function VoiceCoach({ analysis }: { analysis: Analysis }) {
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [usedGemini, setUsedGemini] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
+
+  const stopAll = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ''
+    }
+    window.speechSynthesis?.cancel()
+    setIsPlaying(false)
+  }
+
+  // ── Try Gemini TTS first, fallback to browser ──
+  const playVoiceFeedback = async () => {
+    stopAll()
+    setIsLoading(true)
+
+    try {
+      // Try Gemini TTS endpoint
+      const res = await fetch(`${API}/api/voice-feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis }),
+      })
+
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audioRef.current = audio
+        audio.onended = () => {
+          setIsPlaying(false)
+          URL.revokeObjectURL(url)
+        }
+        audio.onerror = () => {
+          setIsPlaying(false)
+          URL.revokeObjectURL(url)
+        }
+        setIsLoading(false)
+        setIsPlaying(true)
+        setUsedGemini(true)
+        audio.play()
+        return
+      }
+    } catch (_) {
+      // Fall through to browser TTS
+    }
+
+    // ── Browser SpeechSynthesis fallback ──
+    setUsedGemini(false)
+    const script = analysis.voice_script || buildBrowserScript(analysis)
+
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(script)
+      utterance.lang = 'en-IN'
+      utterance.rate = 0.9
+      utterance.pitch = 1.0
+
+      // Prefer a female voice for the "tutor" feel
+      const voices = window.speechSynthesis.getVoices()
+      const preferred = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female'))
+        || voices.find(v => v.lang.startsWith('en'))
+      if (preferred) utterance.voice = preferred
+
+      utterance.onend = () => setIsPlaying(false)
+      utterance.onerror = () => setIsPlaying(false)
+
+      utteranceRef.current = utterance
+      setIsLoading(false)
+      setIsPlaying(true)
+      window.speechSynthesis.speak(utterance)
+    } else {
+      setIsLoading(false)
+      alert('Audio playback is not supported in this browser. Please use Chrome.')
+    }
+  }
+
+  const handleStop = () => {
+    stopAll()
+  }
+
+  // Build a script from analysis for browser TTS (when voice_script not available)
+  const buildBrowserScript = (a: Analysis): string => {
+    let script = 'Great effort on your English practice! Let me go through your sentences. '
+    a.sentences.forEach((s, i) => {
+      if (s.is_correct) {
+        script += `Sentence ${i + 1}: "${s.original}" — This is perfect! Well done. `
+      } else {
+        script += `Sentence ${i + 1}: You said — "${s.original}". `
+        if (s.errors.length > 0) {
+          s.errors.forEach(e => {
+            script += `The word "${e.word}" should be "${e.correction}". ${e.explanation}. `
+          })
+        }
+        script += `The correct sentence is: "${s.corrected}". `
+      }
+    })
+    script += `Overall you scored ${a.overall_score} out of 10. Keep practicing and you will improve!`
+    return script
+  }
+
+  return (
+    <div className="voice-coach-bar">
+      <div className="voice-coach-info">
+        <span className="voice-coach-icon">🎧</span>
+        <div>
+          <div className="voice-coach-title">Live Voice Coach</div>
+          <div className="voice-coach-sub">
+            {isLoading ? 'Generating audio...'
+              : isPlaying ? (usedGemini ? '🤖 Gemini AI speaking...' : '🔊 Coach speaking...')
+              : 'Hear your corrections spoken aloud'}
+          </div>
+        </div>
+      </div>
+      <div className="voice-coach-controls">
+        {isPlaying ? (
+          <button className="vc-btn vc-stop" onClick={handleStop}>⏹ Stop</button>
+        ) : (
+          <button className="vc-btn vc-play" disabled={isLoading} onClick={playVoiceFeedback}>
+            {isLoading ? (
+              <span className="vc-loading">⏳ Generating...</span>
+            ) : (
+              <>▶ Listen to Coach</>
+            )}
+          </button>
+        )}
+      </div>
+      {isPlaying && (
+        <div className="voice-waveform">
+          {[...Array(12)].map((_, i) => (
+            <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.08}s` }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Main App ───────────────────────────────
@@ -313,6 +458,9 @@ function App() {
 function FeedbackDisplay({ analysis }: { analysis: Analysis }) {
   return (
     <>
+      {/* 🎧 Voice Coach — appears at the top of results, prominent */}
+      <VoiceCoach analysis={analysis} />
+
       {/* Scores */}
       <div className="card">
         <div className="card-title">Your Scores</div>
@@ -338,12 +486,12 @@ function FeedbackDisplay({ analysis }: { analysis: Analysis }) {
         <div className="card-title">Sentence-by-Sentence Feedback</div>
         {analysis.sentences.map((s, i) => (
           <div className={`sentence-item ${s.is_correct ? 'correct' : 'has-errors'}`} key={i}>
-            <div className="sentence-label" style={{ color: 'var(--text-muted)' }}>Your sentence:</div>
-            <div className="sentence-original">{s.original}</div>
+            <div className="sentence-label" style={{ color: 'var(--text-muted)' }}>You said:</div>
+            <div className="sentence-original">"{s.original}"</div>
             {!s.is_correct && (
               <>
                 <div className="sentence-label" style={{ color: 'var(--success)' }}>Corrected:</div>
-                <div className="sentence-corrected">✅ {s.corrected}</div>
+                <div className="sentence-corrected">✅ "{s.corrected}"</div>
               </>
             )}
             {s.is_correct && <span className="correct-badge">✅ Perfect!</span>}

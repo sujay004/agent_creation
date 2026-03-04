@@ -1,23 +1,28 @@
 """
 🧠 LLM Module — Gemini Integration for English Analysis
 =========================================================
-Two main functions:
+Functions:
 1. transcribe_audio() — Converts speech audio to text using Gemini
-2. analyze_english() — Analyzes English text for grammar, fluency,
-   provides corrections with Tamil translations
+2. analyze_english() — Analyzes English text for grammar, fluency
+3. generate_voice_script() — Creates conversational coaching text
+4. generate_tts_audio() — Converts script to speech using Gemini TTS
 """
 
 import os
+import io
 import json
 import re
+import wave
 import random
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL = "gemini-2.5-flash"
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
 
 
 # ─────────────────────────────────────────────
@@ -175,3 +180,70 @@ def get_random_topic() -> str:
 
 def get_random_sentence() -> str:
     return random.choice(PRACTICE_SENTENCES)
+
+
+# ─────────────────────────────────────────────
+# Voice Coach — Script Generation + TTS
+# ─────────────────────────────────────────────
+
+VOICE_SCRIPT_PROMPT = """You are a friendly English tutor coaching a Tamil-medium student.
+Generate a SHORT spoken coaching script from this analysis. Keep it under 200 words.
+Be conversational, warm, and encouraging — like a real tutor talking to the student.
+
+Format: Plain text, no markdown, no JSON. Just what you would naturally say out loud.
+
+Structure:
+1. Start with a brief greeting and encouragement
+2. For each sentence with errors: read the original, explain what's wrong, read the corrected version
+3. For correct sentences: briefly praise them
+4. End with 1-2 quick tips and encouragement
+
+Example style:
+"Great effort! Let me go through your sentences. You said 'I goed to school.' The word 'goed' should be 'went' — 'go' has an irregular past tense. So the correct sentence is: 'I went to school.' ... Keep practicing, you're doing really well!"
+
+Analysis to convert:
+{analysis_json}"""
+
+
+def generate_voice_script(analysis: dict) -> str:
+    """Generate a natural conversational coaching script from analysis results."""
+    prompt = VOICE_SCRIPT_PROMPT.format(analysis_json=json.dumps(analysis, indent=2))
+    response = client.models.generate_content(model=MODEL, contents=prompt)
+    return response.text.strip()
+
+
+def generate_tts_audio(script: str) -> bytes:
+    """Convert a text script to WAV audio bytes using Gemini TTS."""
+    response = client.models.generate_content(
+        model=TTS_MODEL,
+        contents=f"Say in a warm, encouraging, clear teacher voice: {script}",
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Kore",
+                    )
+                ),
+            ),
+        )
+    )
+
+    # Extract PCM audio data
+    pcm_data = response.candidates[0].content.parts[0].inline_data.data
+
+    # Convert PCM to WAV in memory
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(pcm_data)
+
+    return buf.getvalue()
+
+
+def generate_tts_audio_from_analysis(analysis: dict) -> bytes:
+    """One-step helper: analysis dict → coaching script → WAV audio bytes."""
+    script = generate_voice_script(analysis)
+    return generate_tts_audio(script)
