@@ -61,6 +61,8 @@ IMPORTANT: Respond ONLY with valid JSON in this exact format (no markdown, no co
   "overall_score": <1-10>,
   "grammar_score": <1-10>,
   "fluency_score": <1-10>,
+  "full_corrected_text": "<The student's ENTIRE text rewritten correctly as a coherent whole — fix all grammar, vocabulary, fluency issues. Preserve the original meaning and conversational tone.>",
+  "full_corrected_text_tamil": "<A Tamil explanation of the main changes made to the full text and why, in 2-3 sentences.>",
   "sentences": [
     {{
       "original": "<exact sentence the student said>",

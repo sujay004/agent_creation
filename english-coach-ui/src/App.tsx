@@ -30,6 +30,8 @@ interface Analysis {
   tips: string[]
   session_id?: number
   voice_script?: string
+  full_corrected_text?: string
+  full_corrected_text_tamil?: string
 }
 
 interface HistorySession {
@@ -195,6 +197,105 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Audio Upload Component ─────────────────
+
+const ACCEPTED_AUDIO = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
+  'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/flac']
+
+function AudioUpload({ onTranscript, onLoading }: {
+  onTranscript: (text: string) => void
+  onLoading: (v: boolean) => void
+}) {
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = async (file: File) => {
+    if (!ACCEPTED_AUDIO.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|ogg|webm|aac|flac)$/i)) {
+      alert('Unsupported file format. Please upload MP3, WAV, M4A, OGG, WebM, AAC, or FLAC.')
+      return
+    }
+    setUploadedFile(file)
+    setUploadStatus('uploading')
+    onLoading(true)
+    try {
+      const formData = new FormData()
+      formData.append('audio', file, file.name)
+      const res = await fetch(`${API}/api/transcribe`, { method: 'POST', body: formData })
+      const data = await res.json()
+      if (data.text) {
+        onTranscript(data.text)
+        setUploadStatus('done')
+      } else {
+        setUploadStatus('error')
+      }
+    } catch {
+      setUploadStatus('error')
+    }
+    onLoading(false)
+  }
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFile(file)
+  }
+
+  const formatSize = (bytes: number) =>
+    bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+
+  return (
+    <div className="upload-section">
+      <div className="upload-divider"><span>or upload an audio file</span></div>
+      <div
+        className={`upload-zone ${isDragging ? 'dragging' : ''} ${uploadStatus === 'done' ? 'success' : ''} ${uploadStatus === 'error' ? 'error' : ''}`}
+        onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={onDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+        />
+        {uploadStatus === 'uploading' ? (
+          <div className="upload-state">
+            <div className="upload-spinner" />
+            <span>Transcribing "{uploadedFile?.name}"...</span>
+          </div>
+        ) : uploadStatus === 'done' ? (
+          <div className="upload-state">
+            <span className="upload-icon">✅</span>
+            <div>
+              <div className="upload-filename">{uploadedFile?.name}</div>
+              <div className="upload-meta">{formatSize(uploadedFile?.size || 0)} · Transcribed! Scroll down to edit &amp; analyze</div>
+            </div>
+            <button className="upload-retry" onClick={e => { e.stopPropagation(); setUploadStatus('idle'); setUploadedFile(null) }}>Upload another</button>
+          </div>
+        ) : uploadStatus === 'error' ? (
+          <div className="upload-state">
+            <span className="upload-icon">❌</span>
+            <span>Transcription failed. Try again.</span>
+          </div>
+        ) : (
+          <div className="upload-state">
+            <span className="upload-icon">📂</span>
+            <div>
+              <div className="upload-hint-title">Drag &amp; drop an audio file</div>
+              <div className="upload-hint-sub">MP3, WAV, M4A, OGG, WebM, AAC, FLAC · Click to browse</div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -408,6 +509,12 @@ function App() {
                 {isRecording ? '🔴 Recording... Click to stop' : 'Click microphone to start'}
               </span>
             </div>
+
+            {/* Audio File Upload */}
+            <AudioUpload
+              onTranscript={text => { setTranscript(text); setAnalysis(null) }}
+              onLoading={setLoading}
+            />
           </div>
 
           {/* Transcript */}
@@ -456,12 +563,33 @@ function App() {
 // ─── Feedback Component ───────────────────────
 
 function FeedbackDisplay({ analysis }: { analysis: Analysis }) {
+  const [conversationView, setConversationView] = useState(false)
+
   return (
     <>
-      {/* 🎧 Voice Coach — appears at the top of results, prominent */}
+      {/* 🎧 Voice Coach */}
       <VoiceCoach analysis={analysis} />
 
-      {/* Scores */}
+      {/* View Mode Toggle */}
+      <div className="view-toggle-bar">
+        <span className="view-toggle-label">View Mode:</span>
+        <div className="view-toggle-switch">
+          <button
+            className={`vtoggle-btn ${!conversationView ? 'active' : ''}`}
+            onClick={() => setConversationView(false)}
+          >
+            📝 Detailed
+          </button>
+          <button
+            className={`vtoggle-btn ${conversationView ? 'active' : ''}`}
+            onClick={() => setConversationView(true)}
+          >
+            💬 Conversation
+          </button>
+        </div>
+      </div>
+
+      {/* Scores — always visible */}
       <div className="card">
         <div className="card-title">Your Scores</div>
         <div className="scores">
@@ -481,37 +609,105 @@ function FeedbackDisplay({ analysis }: { analysis: Analysis }) {
         </div>
       </div>
 
-      {/* Sentence-by-Sentence */}
-      <div className="card">
-        <div className="card-title">Sentence-by-Sentence Feedback</div>
-        {analysis.sentences.map((s, i) => (
-          <div className={`sentence-item ${s.is_correct ? 'correct' : 'has-errors'}`} key={i}>
-            <div className="sentence-label" style={{ color: 'var(--text-muted)' }}>You said:</div>
-            <div className="sentence-original">"{s.original}"</div>
-            {!s.is_correct && (
-              <>
-                <div className="sentence-label" style={{ color: 'var(--success)' }}>Corrected:</div>
-                <div className="sentence-corrected">✅ "{s.corrected}"</div>
-              </>
-            )}
-            {s.is_correct && <span className="correct-badge">✅ Perfect!</span>}
-            {s.errors.map((err, j) => (
-              <div className="error-item" key={j}>
-                <div className="error-word">
-                  <span className="error-wrong">{err.word}</span>
-                  <span className="error-arrow">→</span>
-                  <span className="error-correct">{err.correction}</span>
-                </div>
-                <div className="error-rule">{err.rule}</div>
-                <div className="error-explanation">{err.explanation}</div>
-                <div className="error-tamil">{err.tamil}</div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
+      {conversationView ? (
+        /* ─── CONVERSATION VIEW ─── */
+        <div className="card">
+          <div className="card-title">💬 Conversation View — Original vs Corrected</div>
 
-      {/* Summary */}
+          {/* Header row */}
+          <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', paddingBottom: '10px', marginBottom: '12px' }}>
+            <div style={{ flex: 1, paddingRight: '12px', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--warning)' }}>
+              💬 What You Said
+            </div>
+            <div style={{ width: '1px', background: 'var(--border)', flexShrink: 0, marginRight: '12px' }} />
+            <div style={{ flex: 1, fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--success)' }}>
+              ✅ Corrected Version
+            </div>
+          </div>
+
+          {/* If backend returned full corrected text, show side-by-side blocks */}
+          {analysis.full_corrected_text ? (
+            <div style={{ display: 'flex', gap: '0' }}>
+              <div style={{ flex: 1, paddingRight: '12px', color: 'var(--text-secondary)', lineHeight: 1.7, fontSize: '0.95rem' }}>
+                {analysis.sentences.map(s => s.original).join('\n\n')}
+              </div>
+              <div style={{ width: '1px', background: 'var(--border)', flexShrink: 0, marginRight: '12px' }} />
+              <div style={{ flex: 1, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.7, fontSize: '0.95rem' }}>
+                {analysis.full_corrected_text}
+              </div>
+            </div>
+          ) : (
+            /* Sentence-by-sentence rows — always works */
+            analysis.sentences.map((s, i) => (
+              <div key={i} style={{
+                display: 'flex',
+                gap: '0',
+                padding: '10px 0',
+                borderBottom: i < analysis.sentences.length - 1 ? '1px solid var(--border)' : 'none',
+              }}>
+                <div style={{ flex: 1, paddingRight: '12px' }}>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
+                    {s.original}
+                  </div>
+                  {!s.is_correct && s.errors.length > 0 && (
+                    <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {s.errors.map((err, j) => (
+                        <span key={j} style={{ fontSize: '0.72rem', background: 'var(--error-bg)', color: 'var(--error)', padding: '2px 6px', borderRadius: '4px' }}>
+                          {err.word} → {err.correction}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ width: '1px', background: s.is_correct ? 'rgba(0,200,83,0.2)' : 'var(--border)', flexShrink: 0, marginRight: '12px' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: s.is_correct ? 'var(--success)' : 'var(--text-primary)', fontWeight: s.is_correct ? 400 : 500, fontSize: '0.95rem', lineHeight: 1.6 }}>
+                    {s.is_correct ? '✅ ' : ''}{s.corrected}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+
+          {analysis.full_corrected_text_tamil && (
+            <div className="conv-tamil" style={{ marginTop: '16px' }}>
+              🏺 {analysis.full_corrected_text_tamil}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ─── DETAILED VIEW ─── */
+        <div className="card">
+          <div className="card-title">Sentence-by-Sentence Feedback</div>
+          {analysis.sentences.map((s, i) => (
+            <div className={`sentence-item ${s.is_correct ? 'correct' : 'has-errors'}`} key={i}>
+              <div className="sentence-label" style={{ color: 'var(--text-muted)' }}>You said:</div>
+              <div className="sentence-original">"{s.original}"</div>
+              {!s.is_correct && (
+                <>
+                  <div className="sentence-label" style={{ color: 'var(--success)' }}>Corrected:</div>
+                  <div className="sentence-corrected">✅ "{s.corrected}"</div>
+                </>
+              )}
+              {s.is_correct && <span className="correct-badge">✅ Perfect!</span>}
+              {s.errors.map((err, j) => (
+                <div className="error-item" key={j}>
+                  <div className="error-word">
+                    <span className="error-wrong">{err.word}</span>
+                    <span className="error-arrow">→</span>
+                    <span className="error-correct">{err.correction}</span>
+                  </div>
+                  <div className="error-rule">{err.rule}</div>
+                  <div className="error-explanation">{err.explanation}</div>
+                  <div className="error-tamil">{err.tamil}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Summary — always visible */}
       <div className="card">
         <div className="card-title">Summary & Tips</div>
         <div className="summary-text">{analysis.summary}</div>

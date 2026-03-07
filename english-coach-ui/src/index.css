@@ -711,3 +711,232 @@ body {
   0%, 100% { transform: scaleY(0.3); }
   50% { transform: scaleY(1); }
 }
+
+/* ── View Mode Toggle ────────────────── */
+.view-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.view-toggle-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.view-toggle-switch {
+  display: flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.vtoggle-btn {
+  padding: 6px 18px;
+  border: none;
+  border-radius: 20px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.vtoggle-btn.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 2px 8px rgba(108, 99, 255, 0.4);
+}
+
+.vtoggle-btn:not(.active):hover {
+  color: var(--text-primary);
+  background: var(--card-bg);
+}
+
+/* ── Conversation View ───────────────── */
+.conv-columns {
+  display: flex;
+  gap: 0;
+  margin-top: 10px;
+  min-height: 120px;
+}
+
+.conv-col {
+  flex: 1;
+  padding: 16px;
+}
+
+.conv-col-header {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.original-header {
+  color: var(--warning);
+}
+
+.corrected-header {
+  color: var(--success);
+}
+
+.conv-text {
+  font-size: 1rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.original-text {
+  color: var(--text-secondary);
+}
+
+.corrected-text {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.conv-divider {
+  width: 1px;
+  background: var(--border);
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+.conv-tamil {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(108, 99, 255, 0.08);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ── Audio File Upload ───────────────── */
+.upload-section {
+  margin-top: 16px;
+}
+
+.upload-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.upload-divider::before,
+.upload-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 20px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg-secondary);
+}
+
+.upload-zone:hover,
+.upload-zone.dragging {
+  border-color: var(--accent);
+  background: rgba(108, 99, 255, 0.06);
+}
+
+.upload-zone.success {
+  border-color: var(--success);
+  background: var(--success-bg);
+  border-style: solid;
+}
+
+.upload-zone.error {
+  border-color: var(--error);
+  background: var(--error-bg);
+  border-style: solid;
+}
+
+.upload-state {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+}
+
+.upload-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+}
+
+.upload-hint-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.upload-hint-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.upload-filename {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--success);
+  margin-bottom: 2px;
+}
+
+.upload-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.upload-retry {
+  margin-left: auto;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.78rem;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.upload-retry:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.upload-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
