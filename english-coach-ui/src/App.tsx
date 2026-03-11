@@ -47,7 +47,19 @@ interface HistorySession {
 
 type PracticeMode = 'free_talk' | 'topic_based' | 'sentence_reading'
 type SttMode = 'browser' | 'gemini'
-type AppTab = 'practice' | 'history'
+type AppTab = 'practice' | 'history' | 'test'
+
+interface PracticeQuestion {
+  id: number
+  blank_sentence: string
+  correct_answer: string
+  wrong_word: string
+  original_sentence: string
+  corrected_sentence: string
+  rule: string
+  explanation: string
+  tamil: string
+}
 
 // ─── Score helpers ──────────────────────────
 
@@ -201,7 +213,233 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
   )
 }
 
+// ─── Practice Test Component ─────────────────
+
+function PracticeTest() {
+  const [questions, setQuestions] = useState<PracticeQuestion[]>([])
+  const [loading, setLoading] = useState(false)
+  const [started, setStarted] = useState(false)
+  const [current, setCurrent] = useState(0)
+  const [userAnswer, setUserAnswer] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const [results, setResults] = useState<{ correct: boolean; answer: string }[]>([])
+  const [done, setDone] = useState(false)
+
+  const loadQuestions = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API}/api/practice-test`)
+      const data = await res.json()
+      if (!data.questions || data.questions.length === 0) {
+        setQuestions([])
+        setStarted(true)
+      } else {
+        setQuestions(data.questions)
+        setStarted(true)
+        setCurrent(0)
+        setResults([])
+        setDone(false)
+        setUserAnswer('')
+        setSubmitted(false)
+      }
+    } catch {
+      alert('Could not load questions. Make sure you have some practice history first!')
+    }
+    setLoading(false)
+  }
+
+  const checkAnswer = () => {
+    const q = questions[current]
+    const correct = userAnswer.trim().toLowerCase() === q.correct_answer.toLowerCase()
+    setResults(r => [...r, { correct, answer: userAnswer.trim() }])
+    setSubmitted(true)
+  }
+
+  const nextQuestion = () => {
+    if (current + 1 >= questions.length) {
+      setDone(true)
+    } else {
+      setCurrent(c => c + 1)
+      setUserAnswer('')
+      setSubmitted(false)
+    }
+  }
+
+  const score = results.filter(r => r.correct).length
+
+  // ── Not started yet ────────────────────────
+  if (!started) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+        <div style={{ fontSize: '3.5rem', marginBottom: '12px' }}>🧪</div>
+        <div className="card-title" style={{ marginBottom: '12px' }}>Practice Test</div>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.7 }}>
+          This test is built from <strong style={{ color: 'var(--accent)' }}>your own mistakes</strong> across all practice sessions.
+          Fill in the blank with the correct English word.
+        </p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '28px' }}>
+          🏺 உங்கள் கடந்த கால தவறுகளில் இருந்து கேள்விகள் உருவாக்கப்படும்
+        </p>
+        <button className="analyze-btn" style={{ maxWidth: '220px', margin: '0 auto', display: 'block' }} onClick={loadQuestions} disabled={loading}>
+          {loading ? '⏳ Loading questions...' : '▶ Start Test'}
+        </button>
+      </div>
+    )
+  }
+
+  // ── No questions found ────────────────────
+  if (started && questions.length === 0) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '40px 24px' }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>📭</div>
+        <div className="card-title">No Mistakes Found!</div>
+        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          You haven't made any mistakes yet, or you have no practice history.
+          Do a few practice sessions first, then come back here!
+        </p>
+        <button className="refresh-btn" style={{ marginTop: '20px' }} onClick={() => setStarted(false)}>← Back</button>
+      </div>
+    )
+  }
+
+  // ── Results screen ───────────────────────
+  if (done) {
+    const pct = Math.round((score / questions.length) * 100)
+    return (
+      <>
+        <div className="card" style={{ textAlign: 'center', padding: '32px 24px' }}>
+          <div style={{ fontSize: '3.5rem', marginBottom: '8px' }}>
+            {pct >= 80 ? '🏆' : pct >= 50 ? '👍' : '💪'}
+          </div>
+          <div className="card-title" style={{ marginBottom: '8px' }}>Test Complete!</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 700, color: pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--error)', margin: '4px 0 8px' }}>
+            {score} / {questions.length}
+          </div>
+          <div style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>{pct}% correct</div>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="analyze-btn" style={{ maxWidth: '160px' }} onClick={loadQuestions}>🔄 New Test</button>
+            <button className="refresh-btn" onClick={() => setStarted(false)}>← Back</button>
+          </div>
+        </div>
+
+        {/* Per-question review */}
+        {questions.map((q, i) => {
+          const r = results[i]
+          return (
+            <div key={i} className="card" style={{ borderLeft: `3px solid ${r?.correct ? 'var(--success)' : 'var(--error)'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <span style={{ fontSize: '1.1rem' }}>{r?.correct ? '✅' : '❌'}</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Question {i + 1}</span>
+              </div>
+              <div style={{ color: 'var(--text-primary)', fontSize: '0.95rem', marginBottom: '6px', fontWeight: 500 }}>
+                {q.blank_sentence.replace('_____', `[${q.correct_answer}]`)}
+              </div>
+              {!r?.correct && (
+                <div style={{ fontSize: '0.85rem', color: 'var(--error)', marginBottom: '6px' }}>
+                  You answered: <strong>"{r?.answer || '(empty)'}"</strong>
+                </div>
+              )}
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>📖 {q.rule}</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>{q.explanation}</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>🏺 {q.tamil}</div>
+            </div>
+          )
+        })}
+      </>
+    )
+  }
+
+  // ── Active question ──────────────────────
+  const q = questions[current]
+  const currentResult = results[current]
+  const parts = q.blank_sentence.split('_____')
+
+  return (
+    <div className="card">
+      {/* Progress bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Question {current + 1} of {questions.length}</span>
+        <span style={{ fontSize: '0.8rem', color: 'var(--success)' }}>✅ {results.filter(r => r.correct).length} correct</span>
+      </div>
+      <div className="score-bar" style={{ marginBottom: '24px' }}>
+        <div className="score-bar-fill high" style={{ width: `${(current / questions.length) * 100}%`, transition: 'width 0.4s' }} />
+      </div>
+
+      {/* Sentence with blank rendered inline */}
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
+        Fill in the blank:
+      </div>
+      <div style={{ fontSize: '1.1rem', color: 'var(--text-primary)', lineHeight: 2, marginBottom: '8px' }}>
+        {parts.map((part, i) => (
+          <span key={i}>
+            {part}
+            {i < parts.length - 1 && (
+              <span style={{
+                display: 'inline-block',
+                borderBottom: `2px solid ${submitted ? (currentResult?.correct ? 'var(--success)' : 'var(--error)') : 'var(--accent)'}`,
+                minWidth: '90px',
+                textAlign: 'center',
+                color: submitted ? (currentResult?.correct ? 'var(--success)' : 'var(--error)') : 'var(--accent)',
+                fontWeight: 700,
+                padding: '0 6px',
+                margin: '0 2px',
+              }}>
+                {submitted ? q.correct_answer : (userAnswer || '\u00a0\u00a0\u00a0\u00a0\u00a0')}
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '20px', fontStyle: 'italic' }}>
+        You originally said: "{q.original_sentence}"
+      </div>
+
+      {/* Input or feedback */}
+      {!submitted ? (
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <input
+            style={{
+              flex: 1, minWidth: '160px', padding: '10px 14px',
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              borderRadius: '8px', color: 'var(--text-primary)', fontFamily: 'inherit',
+              fontSize: '0.95rem', outline: 'none',
+            }}
+            placeholder="Type your answer..."
+            value={userAnswer}
+            onChange={e => setUserAnswer(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && userAnswer.trim() && checkAnswer()}
+            autoFocus
+          />
+          <button className="analyze-btn" style={{ flex: 'none', padding: '10px 24px' }} disabled={!userAnswer.trim()} onClick={checkAnswer}>
+            Submit
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            padding: '14px', borderRadius: '10px',
+            background: currentResult?.correct ? 'var(--success-bg)' : 'var(--error-bg)',
+            marginBottom: '14px',
+          }}>
+            <div style={{ fontWeight: 600, color: currentResult?.correct ? 'var(--success)' : 'var(--error)', marginBottom: '6px' }}>
+              {currentResult?.correct ? '✅ Correct!' : `❌ Correct answer: "${q.correct_answer}"`}
+            </div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>📖 {q.rule}</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>{q.explanation}</div>
+            <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>🏺 {q.tamil}</div>
+          </div>
+          <button className="analyze-btn" onClick={nextQuestion}>
+            {current + 1 >= questions.length ? '📊 See Results' : 'Next Question →'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Audio Upload Component ─────────────────
+
 
 const ACCEPTED_AUDIO = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
   'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/flac']
@@ -462,6 +700,9 @@ function App() {
         <button className={`tab ${tab === 'history' ? 'active' : ''}`} onClick={() => { setTab('history'); setSelectedSession(null) }}>
           📜 History
         </button>
+        <button className={`tab ${tab === 'test' ? 'active' : ''}`} onClick={() => { setTab('test'); setSelectedSession(null) }}>
+          🧪 Test
+        </button>
       </div>
 
       {tab === 'practice' && (
@@ -547,6 +788,8 @@ function App() {
       {tab === 'history' && !selectedSession && (
         <HistoryList history={history} onSelect={viewSession} />
       )}
+
+      {tab === 'test' && <PracticeTest />}
 
       {selectedSession && (
         <>

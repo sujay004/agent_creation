@@ -224,3 +224,80 @@ async def voice_feedback(request: VoiceFeedbackRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Voice generation failed: {str(e)}")
+
+
+@app.get("/api/practice-test")
+def get_practice_test():
+    """
+    Scan all history sessions → extract every mistake → return fill-in-the-blank questions.
+    Each question blanks out the CORRECT word in the corrected sentence so the user
+    must type the right word to fill it in.
+    """
+    import random
+    import re
+
+    sessions = database.get_sessions(limit=100)
+    questions = []
+    seen = set()  # avoid duplicate questions
+
+    for session in sessions:
+        try:
+            analysis = json.loads(session.get("analysis_json", "{}"))
+        except Exception:
+            continue
+
+        sentences = analysis.get("sentences", [])
+        for sent in sentences:
+            if sent.get("is_correct"):
+                continue
+            errors = sent.get("errors", [])
+            corrected = sent.get("corrected", "")
+            original = sent.get("original", "")
+
+            for err in errors:
+                correct_word = err.get("correction", "").strip()
+                wrong_word = err.get("word", "").strip()
+
+                if not correct_word or not corrected:
+                    continue
+
+                # Deduplicate: skip if we already have this (corrected_sentence, correct_word) pair
+                key = (corrected.lower(), correct_word.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                # Create blank by replacing the correct word in the corrected sentence
+                # Use word-boundary-aware replacement (case-insensitive)
+                pattern = re.compile(re.escape(correct_word), re.IGNORECASE)
+                blank_sentence = pattern.sub("_____", corrected, count=1)
+
+                # Skip if the replacement didn't actually change anything
+                if blank_sentence == corrected:
+                    continue
+
+                questions.append({
+                    "id": len(questions),
+                    "blank_sentence": blank_sentence,
+                    "correct_answer": correct_word,
+                    "wrong_word": wrong_word,
+                    "original_sentence": original,
+                    "corrected_sentence": corrected,
+                    "rule": err.get("rule", ""),
+                    "explanation": err.get("explanation", ""),
+                    "tamil": err.get("tamil", ""),
+                })
+
+    # Shuffle and return up to 20 questions
+    random.shuffle(questions)
+    questions = questions[:20]
+
+    # Re-index after shuffle
+    for i, q in enumerate(questions):
+        q["id"] = i
+
+    return {
+        "total": len(questions),
+        "questions": questions
+    }
+
