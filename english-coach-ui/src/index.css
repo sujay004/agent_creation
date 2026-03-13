@@ -609,9 +609,8 @@ body {
   padding: 18px 20px;
   margin-bottom: 16px;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 14px;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(108, 99, 255, 0.15);
 }
@@ -710,6 +709,130 @@ body {
 @keyframes wave {
   0%, 100% { transform: scaleY(0.3); }
   50% { transform: scaleY(1); }
+}
+
+/* ── VC Top Row ──────────────────────── */
+.vc-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ── Progress Bar ────────────────────── */
+.vc-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vc-progress-track {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: visible;
+}
+
+.vc-progress-track:hover .vc-progress-thumb {
+  opacity: 1;
+  transform: translateX(-50%) scale(1.2);
+}
+
+.vc-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6c63ff, #00c853);
+  border-radius: 3px;
+  transition: width 0.1s linear;
+  pointer-events: none;
+}
+
+.vc-progress-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translateX(-50%) translateY(-50%);
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(108, 99, 255, 0.6);
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.15s;
+  pointer-events: none;
+}
+
+.vc-time-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+
+/* ── Player Controls ─────────────────── */
+.vc-controls-row {
+  display: flex;
+  align-items: center;
+}
+
+.vc-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vc-play-pause-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #6c63ff, #00c853);
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(108, 99, 255, 0.4);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.vc-play-pause-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 18px rgba(108, 99, 255, 0.55);
+}
+
+.vc-icon-btn {
+  padding: 7px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(108, 99, 255, 0.35);
+  background: rgba(108, 99, 255, 0.1);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.vc-icon-btn:hover {
+  background: rgba(108, 99, 255, 0.25);
+  color: var(--text-primary);
+  border-color: rgba(108, 99, 255, 0.6);
+}
+
+.vc-reload {
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+.vc-reload:hover {
+  opacity: 1;
 }
 
 /* ── View Mode Toggle ────────────────── */

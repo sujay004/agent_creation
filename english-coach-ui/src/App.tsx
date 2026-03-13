@@ -75,25 +75,36 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [usedGemini, setUsedGemini] = useState(false)
+  const [hasAudio, setHasAudio] = useState(false)
+
+  // Real-time player state
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
 
+  // ── Helpers ───────────────────────────────
+  const fmt = (s: number) => {
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    return `${m}:${sec.toString().padStart(2, '0')}`
+  }
+
   const stopAll = () => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.src = ''
-    }
+    audioRef.current?.pause()
     window.speechSynthesis?.cancel()
     setIsPlaying(false)
   }
 
-  // ── Try Gemini TTS first, fallback to browser ──
-  const playVoiceFeedback = async () => {
+  // ── Load & Play Gemini TTS ─────────────────
+  const loadAndPlay = async () => {
     stopAll()
     setIsLoading(true)
+    setCurrentTime(0)
+    setDuration(0)
 
     try {
-      // Try Gemini TTS endpoint
       const res = await fetch(`${API}/api/voice-feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -105,26 +116,24 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
         const url = URL.createObjectURL(blob)
         const audio = new Audio(url)
         audioRef.current = audio
-        audio.onended = () => {
-          setIsPlaying(false)
-          URL.revokeObjectURL(url)
-        }
-        audio.onerror = () => {
-          setIsPlaying(false)
-          URL.revokeObjectURL(url)
-        }
+
+        audio.onloadedmetadata = () => setDuration(audio.duration)
+        audio.ontimeupdate = () => setCurrentTime(audio.currentTime)
+        audio.onended = () => { setIsPlaying(false); setCurrentTime(audio.duration) }
+        audio.onerror = () => { setIsPlaying(false); URL.revokeObjectURL(url) }
+
         setIsLoading(false)
         setIsPlaying(true)
         setUsedGemini(true)
+        setHasAudio(true)
         audio.play()
         return
       }
-    } catch (_) {
-      // Fall through to browser TTS
-    }
+    } catch (_) { /* fall through */ }
 
-    // ── Browser SpeechSynthesis fallback ──
+    // ── Browser TTS fallback ────────────────
     setUsedGemini(false)
+    setHasAudio(false)
     const script = analysis.voice_script || buildBrowserScript(analysis)
 
     if ('speechSynthesis' in window) {
@@ -132,16 +141,12 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
       utterance.lang = 'en-IN'
       utterance.rate = 0.9
       utterance.pitch = 1.0
-
-      // Prefer a female voice for the "tutor" feel
       const voices = window.speechSynthesis.getVoices()
       const preferred = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female'))
         || voices.find(v => v.lang.startsWith('en'))
       if (preferred) utterance.voice = preferred
-
       utterance.onend = () => setIsPlaying(false)
       utterance.onerror = () => setIsPlaying(false)
-
       utteranceRef.current = utterance
       setIsLoading(false)
       setIsPlaying(true)
@@ -152,11 +157,44 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
     }
   }
 
-  const handleStop = () => {
-    stopAll()
+  // ── Playback controls ──────────────────────
+  const togglePlayPause = () => {
+    const audio = audioRef.current
+    if (!audio || !usedGemini) return
+    if (isPlaying) {
+      audio.pause()
+      setIsPlaying(false)
+    } else {
+      audio.play()
+      setIsPlaying(true)
+    }
   }
 
-  // Build a script from analysis for browser TTS (when voice_script not available)
+  const replay = () => {
+    const audio = audioRef.current
+    if (audio && usedGemini) {
+      audio.currentTime = 0
+      audio.play()
+      setIsPlaying(true)
+    } else {
+      loadAndPlay()
+    }
+  }
+
+  const seek = (delta: number) => {
+    const audio = audioRef.current
+    if (!audio || !usedGemini) return
+    audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + delta))
+  }
+
+  const onProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current
+    if (!audio || !usedGemini || !duration) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = (e.clientX - rect.left) / rect.width
+    audio.currentTime = pct * duration
+  }
+
   const buildBrowserScript = (a: Analysis): string => {
     let script = 'Great effort on your English practice! Let me go through your sentences. '
     a.sentences.forEach((s, i) => {
@@ -164,11 +202,9 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
         script += `Sentence ${i + 1}: "${s.original}" — This is perfect! Well done. `
       } else {
         script += `Sentence ${i + 1}: You said — "${s.original}". `
-        if (s.errors.length > 0) {
-          s.errors.forEach(e => {
-            script += `The word "${e.word}" should be "${e.correction}". ${e.explanation}. `
-          })
-        }
+        s.errors.forEach(e => {
+          script += `The word "${e.word}" should be "${e.correction}". ${e.explanation}. `
+        })
         script += `The correct sentence is: "${s.corrected}". `
       }
     })
@@ -176,42 +212,102 @@ function VoiceCoach({ analysis }: { analysis: Analysis }) {
     return script
   }
 
+  const pct = duration > 0 ? (currentTime / duration) * 100 : 0
+  const hasLoaded = hasAudio && duration > 0
+
   return (
     <div className="voice-coach-bar">
-      <div className="voice-coach-info">
-        <span className="voice-coach-icon">🎧</span>
-        <div>
-          <div className="voice-coach-title">Live Voice Coach</div>
-          <div className="voice-coach-sub">
-            {isLoading ? 'Generating audio...'
-              : isPlaying ? (usedGemini ? '🤖 Gemini AI speaking...' : '🔊 Coach speaking...')
-              : 'Hear your corrections spoken aloud'}
+      {/* Top row: icon + title + waveform */}
+      <div className="vc-top-row">
+        <div className="voice-coach-info">
+          <span className="voice-coach-icon">🎧</span>
+          <div>
+            <div className="voice-coach-title">Live Voice Coach</div>
+            <div className="voice-coach-sub">
+              {isLoading ? '⏳ Generating audio...'
+                : isPlaying ? (usedGemini ? '🤖 Gemini AI speaking...' : '🔊 Coach speaking...')
+                : hasAudio ? (usedGemini ? '🎵 Ready to play' : 'Ready')
+                : 'Hear your corrections spoken aloud'}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="voice-coach-controls">
-        {isPlaying ? (
-          <button className="vc-btn vc-stop" onClick={handleStop}>⏹ Stop</button>
-        ) : (
-          <button className="vc-btn vc-play" disabled={isLoading} onClick={playVoiceFeedback}>
-            {isLoading ? (
-              <span className="vc-loading">⏳ Generating...</span>
-            ) : (
-              <>▶ Listen to Coach</>
-            )}
-          </button>
+        {isPlaying && (
+          <div className="voice-waveform">
+            {[...Array(12)].map((_, i) => (
+              <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.08}s` }} />
+            ))}
+          </div>
         )}
       </div>
-      {isPlaying && (
-        <div className="voice-waveform">
-          {[...Array(12)].map((_, i) => (
-            <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.08}s` }} />
-          ))}
+
+      {/* Progress bar — only for Gemini TTS */}
+      {usedGemini && (hasLoaded || isPlaying) && (
+        <div className="vc-progress-section">
+          <div
+            className="vc-progress-track"
+            onClick={onProgressClick}
+            title="Click to seek"
+          >
+            <div
+              className="vc-progress-fill"
+              style={{ width: `${pct}%` }}
+            />
+            <div
+              className="vc-progress-thumb"
+              style={{ left: `${pct}%` }}
+            />
+          </div>
+          <div className="vc-time-row">
+            <span>{fmt(currentTime)}</span>
+            <span>{duration > 0 ? fmt(duration) : '--:--'}</span>
+          </div>
         </div>
       )}
+
+      {/* Controls */}
+      <div className="vc-controls-row">
+        {!hasAudio && !isLoading && !isPlaying ? (
+          /* Initial state — just a Listen button */
+          <button className="vc-btn vc-play" onClick={loadAndPlay}>
+            ▶ Listen to Coach
+          </button>
+        ) : isLoading ? (
+          <button className="vc-btn vc-play" disabled>⏳ Generating...</button>
+        ) : usedGemini ? (
+          /* Full player controls for Gemini audio */
+          <div className="vc-player-controls">
+            <button className="vc-icon-btn" onClick={replay} title="Replay from start">
+              ↺
+            </button>
+            <button className="vc-icon-btn" onClick={() => seek(-10)} title="Back 10s">
+              ⏮ 10s
+            </button>
+            <button className="vc-play-pause-btn" onClick={togglePlayPause}>
+              {isPlaying ? '⏸' : '▶'}
+            </button>
+            <button className="vc-icon-btn" onClick={() => seek(10)} title="Forward 10s">
+              10s ⏭
+            </button>
+            <button className="vc-icon-btn vc-reload" onClick={loadAndPlay} title="Generate new audio">
+              🔄
+            </button>
+          </div>
+        ) : (
+          /* Browser TTS — simpler controls */
+          <div className="vc-player-controls">
+            {isPlaying ? (
+              <button className="vc-play-pause-btn" onClick={() => { window.speechSynthesis.cancel(); setIsPlaying(false) }}>⏸</button>
+            ) : (
+              <button className="vc-play-pause-btn" onClick={loadAndPlay}>▶</button>
+            )}
+            <button className="vc-icon-btn vc-reload" onClick={loadAndPlay} title="Replay">↺ Replay</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
 
 // ─── Practice Test Component ─────────────────
 
